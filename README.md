@@ -1,51 +1,239 @@
 # better-auth-expo-biometric
 
-Better Auth Expo biometric keychain storage for React Native.
+Secure storage plugin for [better-auth](https://better-auth.com) on Expo/React Native. Provides encrypted, biometric-protected session storage using the device's Keychain (iOS) or Keystore (Android).
 
-## Features
-- Keychain-backed encryption key
-- Encrypted storage in AsyncStorage
-- Optional biometric protection
-- Synchronous storage interface for Better Auth
+## Overview
 
-## Install
+This library solves a key security challenge in mobile auth: **secure session persistence**. Rather than storing sensitive authentication tokens in plain AsyncStorage, this plugin:
 
-Install the package and peer dependencies in your Expo project.
+1. **In-memory virtual storage**: Maintains session data in a fast, in-memory Map that your app reads and writes to instantly (synchronous)
+2. **Automatic encryption and persistence**: When you update data, it automatically encrypts it with a key stored in Keychain, then saves the encrypted blob to AsyncStorage in the background (non-blocking)
+3. **Keychain-protected encryption key**: The encryption key lives in the device's secure Keychain/Keystore with optional biometric or passcode protection
+4. **Transparent to your app**: Once initialized, it works exactly like standard storage but with encryption and biometric protection underneath
 
-## Usage
+### The Flow
 
-Create the storage and pass it to `expoClient`, then call `load` on app start.
+```
+Your App → setItem(key, value)
+            ↓
+         In-Memory Map (instant read/write)
+            ↙                       ↘
+    Return to app               Sync to storage (async)
+    (synchronous)                   ↓
+                                Background encryption with Keychain key
+                                    ↓
+                                AsyncStorage persists encrypted data
 
-Example (simplified):
-- Create storage with `createKeychainSyncedStorage`.
-- Call `load()` during app initialization.
-- Pass `store` and `plugin` to Better Auth.
+On app restart:
+        ↓
+    Load key from Keychain
+        ↓
+    Decrypt data from AsyncStorage
+        ↓
+    Restore In-Memory Map
+```
 
-## API
+## Installation
 
-### createKeychainSyncedStorage(options?)
-Returns:
-- `store`: sync storage for Better Auth
-- `plugin`: Better Auth client plugin
-- `load`: async initialization function
-- `setEnableBiometrics(enabled)`
-- `getBiometricsEnabled()`
+```bash
+npm install better-auth-expo-biometric
+```
 
-Options:
-- `storagePrefixKey`: base namespace for all keys. Default: baeb
-- `storageVersion`: number used in key suffixes. Default: 1
+### Peer Dependencies
 
-Generated keys format:
-- (storagePrefixKey || "baeb").service.v(version)
-- (storagePrefixKey || "baeb").key.v(version)
-- (storagePrefixKey || "baeb").enabled.v(version)
-- (storagePrefixKey || "baeb").storage.v(version)
+Make sure these are installed:
 
-To avoid duplication in multi-app or multi-env setups, use a unique `storagePrefixKey` per app/environment.
+```bash
+npm install @better-auth/core @better-auth/expo @react-native-async-storage/async-storage react-native-keychain react-native-aes-crypto react-native
+```
 
-### getSupportedBiometryType
-Re-export from `react-native-keychain`.
+## Quick Start
 
-## Notes
-- Web is no-op.
-- If the biometric prompt is canceled, storage remains empty until initialized again.
+### 1. Initialize the Storage
+
+Create a configuration file (e.g., `src/lib/auth.ts`):
+
+```typescript
+import { createKeychainSyncedStorage } from "better-auth-expo-biometric";
+
+const {
+    store: KeychainSyncedStore,
+    plugin: KeychainSyncedStorePlugin,
+    load: initializeAuth,
+    setEnableBiometrics,
+    getBiometricsEnabled,
+} = createKeychainSyncedStorage({
+    storagePrefixKey: "com.myapp.auth",
+});
+
+export {
+    initializeAuth,
+    setEnableBiometrics,
+    getBiometricsEnabled,
+    KeychainSyncedStore,
+    KeychainSyncedStorePlugin,
+};
+```
+
+### 2. Initialize Before Using Auth
+
+In your root layout or app initializer (e.g., `app/_layout.tsx`):
+
+```typescript
+import { useEffect, useState } from 'react';
+import { initializeAuth } from './lib/auth';
+
+export default function RootLayout() {
+    const [isAuthReady, setIsAuthReady] = useState(false);
+
+    useEffect(() => {
+        initializeAuth()
+            .then(() => {
+                setIsAuthReady(true);
+                console.log('Keychain storage initialized');
+            })
+            .catch(err => console.error('Auth init failed:', err));
+    }, []);
+
+    if (!isAuthReady) {
+        return <SplashScreen />; // or loading UI
+    }
+
+    return <YourAppContent />;
+}
+```
+
+### 3. Create Your Auth Client
+
+```typescript
+import { createAuthClient } from "better-auth/react";
+import { expoClient } from "@better-auth/expo/client";
+import { KeychainSyncedStore, KeychainSyncedStorePlugin } from "./lib/auth";
+
+export const authClient = createAuthClient({
+    baseURL: "https://your-server.com",
+    plugins: [
+        expoClient({
+            scheme: "myapp",
+            storage: KeychainSyncedStore,
+        }),
+        KeychainSyncedStorePlugin,
+        // ... other plugins
+    ],
+});
+```
+
+## Configuration Options
+
+```typescript
+interface KeychainStorageOptions {
+    // Biometric and auth prompt messages (optional)
+    authPrompt?: {
+        title?: string; // default: "Authentication Required"
+        subtitle?: string; // default: "Restoring your session"
+        cancel?: string; // default: "Cancel"
+    };
+
+    // Prefix for all stored keys (avoid collisions between apps)
+    storagePrefixKey?: string; // default: 'baeb'
+
+    // Storage version for key naming (increment to invalidate old encrypted data)
+    storageVersion?: number; // default: 1
+
+    // Enable console logging for debugging
+    enableLogging?: boolean; // default: false
+
+    // Custom logger implementation
+    logger?: {
+        log: (...args: unknown[]) => void;
+        warn: (...args: unknown[]) => void;
+        error: (...args: unknown[]) => void;
+    };
+}
+```
+
+## Multi-Session Support
+
+This plugin is fully compatible with [better-auth's multi-session plugin](https://www.better-auth.com/docs/plugins/multi-session), allowing users to maintain multiple authenticated sessions simultaneously each encrypted and keychain-protected.
+
+```typescript
+import { multiSessionClient } from "better-auth/client/plugins";
+
+const authClient = createAuthClient({
+    plugins: [
+        expoClient({
+            /* ... */
+        }),
+        multiSessionClient(), // Enable multiple sessions
+        KeychainSyncedStorePlugin,
+    ],
+});
+```
+
+## Configuring Keychain Security Level
+
+By default, the encryption key is stored in Keychain with passcode-only protection. You can toggle biometric authentication at any time during your app's lifecycle, such as from a settings page.
+
+The `setEnableBiometrics()` function switches the encryption key between two security modes:
+
+```typescript
+import { setEnableBiometrics } from "./lib/auth";
+
+// Enable biometric-protected key access
+// On Android: requires biometric enrollment; on iOS: enables Touch ID / Face ID
+await setEnableBiometrics(true);
+
+// Disable and revert to passcode-only protection
+await setEnableBiometrics(false);
+```
+
+### How It Works
+
+When you call `setEnableBiometrics()`:
+
+1. **Key verification**: If biometric was already enabled, the user is prompted to authenticate (biometric or passcode) to verify they have access to the current key
+2. **Key rotation**: A new encryption key is generated
+3. **Data re-encryption**: All stored session data is encrypted with the new key
+4. **Keychain update**: The new key is saved to Keychain with the specified protection level (biometric or passcode-only)
+
+This approach ensures security even though the data itself doesn't change: by rotating the key, you prevent unauthorized access if the biometric setting is toggled.
+
+**Important**: Do not call `setEnableBiometrics()` multiple times in rapid succession. There may be a race condition in `react-native-keychain` that requires time to complete each operation safely. Calling it too quickly could potentially corrupt the stored key. If you need to toggle the setting, ensure there is sufficient time between calls or debounce the function.
+
+Note: Device must have biometric data enrolled to enable biometric protection. Biometric support is handled by `react-native-keychain` and the device's native Keychain/Keystore APIs.
+
+## Security Considerations
+
+### What This Protects Against
+
+- **Plaintext token theft**: Tokens are encrypted at rest in AsyncStorage
+- **Casual storage inspection**: Anyone reading AsyncStorage files only sees encrypted blobs
+- **Unauthorized key access**: The encryption key is locked in device Keychain and requires biometric or passcode
+- **App-level compromise**: Even if your app is compromised, accessing tokens requires the Keychain key
+
+### Limitations
+
+- **Rooted/Jailbroken devices**: An attacker with full device control can potentially bypass Keychain protections
+- **Malicious APK modification**: If your app code is modified with malware, keys can be intercepted at runtime during decryption
+- **Weak user authentication**: If the user disables biometric or uses a weak passcode, key security degrades
+- **Server-side responsibility**: This library only secures client-side storage. Your backend must still implement proper authentication, token expiry, rate limiting, and authorization
+
+## Contributing
+
+Issues and PRs welcome! Please include:
+
+- React Native / Expo version
+- iOS or Android (or both)
+- Steps to reproduce
+- Relevant logs with `enableLogging: true`
+
+## License
+
+MIT
+
+## Related Links
+
+- [better-auth Documentation](https://better-auth.com)
+- [better-auth Multi-Session Plugin](https://www.better-auth.com/docs/plugins/multi-session)
+- [react-native-keychain](https://github.com/oblador/react-native-keychain)
+- [react-native-aes-crypto](https://github.com/tectiv3/react-native-aes)

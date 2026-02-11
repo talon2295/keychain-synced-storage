@@ -224,6 +224,7 @@ class KeychainSyncedStore {
         );
         try {
             if (this.biometricsEnabled) {
+                //Ensure user can access current key before change it
                 await this.getEncryptionKeyFromKeychain();
             }
             const dataToReEncrypt = Object.fromEntries(this.memory);
