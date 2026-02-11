@@ -1,0 +1,43 @@
+{
+    "name": "better-auth-expo-biometric",
+    "version": "0.1.0",
+    "description": "Better Auth Expo biometric keychain storage",
+    "license": "MIT",
+    "main": "dist/index.js",
+    "module": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js",
+            "require": "./dist/index.js"
+        }
+    },
+    "files": [
+        "dist"
+    ],
+    "scripts": {
+        "build": "tsc -p tsconfig.json",
+        "clean": "rm -rf dist",
+        "prepublishOnly": "npm run clean && npm run build"
+    },
+    "keywords": [
+        "better-auth",
+        "expo",
+        "react-native",
+        "biometrics",
+        "keychain",
+        "auth"
+    ],
+    "peerDependencies": {
+        "@better-auth/core": ">=1.0.0",
+        "@better-auth/expo": ">=1.0.0",
+        "@react-native-async-storage/async-storage": ">=1.0.0",
+        "react-native": ">=0.70.0",
+        "react-native-aes-crypto": ">=2.0.0",
+        "react-native-keychain": ">=8.0.0"
+    },
+    "devDependencies": {
+        "typescript": "^5.3.3"
+    }
+}
