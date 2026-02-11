@@ -1,0 +1,15 @@
+src/
+tsconfig.json
+README.md
+.gitignore
+.github/
+*.ts
+!*.d.ts
+node_modules/
+.git/
+.DS_Store
+.env
+.env.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

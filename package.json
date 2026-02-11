@@ -1,8 +1,17 @@
 {
     "name": "better-auth-expo-biometric",
     "version": "0.1.0",
-    "description": "Better Auth Expo biometric keychain storage",
+    "description": "Secure biometric-protected session storage for better-auth on Expo/React Native",
     "license": "MIT",
+    "author": "",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/talon2295/better-auth-expo-biometric.git"
+    },
+    "homepage": "https://github.com/talon2295/better-auth-expo-biometric",
+    "bugs": {
+        "url": "https://github.com/talon2295/better-auth-expo-biometric/issues"
+    },
     "main": "dist/index.js",
     "module": "dist/index.js",
     "types": "dist/index.d.ts",
@@ -14,7 +23,9 @@
         }
     },
     "files": [
-        "dist"
+        "dist",
+        "README.md",
+        "LICENSE"
     ],
     "scripts": {
         "build": "tsc -p tsconfig.json",
@@ -28,8 +39,13 @@
         "react-native",
         "biometrics",
         "keychain",
-        "auth"
+        "auth",
+        "storage",
+        "encryption"
     ],
+    "engines": {
+        "node": ">=14.0.0"
+    },
     "peerDependencies": {
         "@better-auth/core": ">=1.0.0",
         "@better-auth/expo": ">=1.0.0",
