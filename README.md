@@ -41,11 +41,13 @@ npm install better-auth-expo-biometric
 
 ### Peer Dependencies
 
-Make sure these are installed:
+Required packages and why they are needed:
 
-```bash
-npm install @better-auth/core @better-auth/expo @react-native-async-storage/async-storage react-native-keychain react-native-aes-crypto react-native
-```
+- @better-auth/core and @better-auth/expo: required by the Better Auth client
+- @react-native-async-storage/async-storage: used for data persistence
+- react-native-keychain: stores the encryption key securely
+- react-native-aes-crypto: encrypts and decrypts session data
+- react-native: required runtime for native modules
 
 ## Quick Start
 
