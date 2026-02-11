@@ -38,7 +38,7 @@
         "react-native-aes-crypto": ">=2.0.0",
         "react-native-keychain": ">=8.0.0"
     },
-    "devDependencies": {
+    "dependencies": {
         "typescript": "^5.3.3"
     }
 }
