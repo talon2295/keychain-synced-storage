@@ -234,6 +234,10 @@ Note: Device must have biometric data enrolled to enable biometric protection. B
 - **Weak user authentication**: If the user disables biometric or uses a weak passcode, key security degrades
 - **Server-side responsibility**: This library only secures client-side storage. Your backend must still implement proper authentication, token expiry, rate limiting, and authorization
 
+## Roadmap
+
+- Add optional callbacks for `setItem()` and `removeItem()` to confirm when data has been persisted to AsyncStorage
+
 ## Contributing
 
 Issues and PRs welcome! Please include:
