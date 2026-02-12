@@ -1,10 +1,10 @@
-# better-auth-expo-biometric
+# keychain-synced-storage
 
-Secure storage plugin for [better-auth](https://better-auth.com) on Expo/React Native. Provides encrypted, biometric-protected session storage using the device's Keychain (iOS) or Keystore (Android).
+Secure storage adapter for Expo/React Native. Provides encrypted, biometric-protected session storage using the device's Keychain (iOS) or Keystore (Android).
 
 ## Overview
 
-This library solves a key security challenge in mobile auth: **secure session persistence**. Rather than storing sensitive authentication tokens in plain AsyncStorage, this plugin:
+This library solves a key security challenge in mobile auth: **secure session persistence**. Rather than storing sensitive tokens or secrets in plain AsyncStorage, this adapter:
 
 1. **In-memory virtual storage**: Maintains session data in a fast, in-memory Map that your app reads and writes to instantly (synchronous)
 2. **Automatic encryption and persistence**: When you update data, it automatically encrypts it with a key stored in Keychain, then saves the encrypted blob to AsyncStorage in the background (non-blocking)
@@ -36,31 +36,29 @@ On app restart:
 ## Installation
 
 ```bash
-npm install better-auth-expo-biometric
+npm install keychain-synced-storage
 ```
 
 ### Peer Dependencies
 
 Required packages and why they are needed:
 
-- @better-auth/core and @better-auth/expo: required by the Better Auth client
 - @react-native-async-storage/async-storage: used for data persistence
 - react-native-keychain: stores the encryption key securely
 - react-native-aes-crypto: encrypts and decrypts session data
 - react-native: required runtime for native modules
 
-## Quick Start
+## Usage
 
 ### 1. Initialize the Storage
 
-Create a configuration file (e.g., `src/lib/auth.ts`):
+Create a configuration file (e.g., `src/lib/storage.ts`):
 
 ```typescript
-import { createKeychainSyncedStorage } from "better-auth-expo-biometric";
+import { createKeychainSyncedStorage } from "keychain-synced-storage";
 
 const {
     store: KeychainSyncedStore,
-    plugin: KeychainSyncedStorePlugin,
     load: initializeAuth,
     setEnableBiometrics,
     getBiometricsEnabled,
@@ -73,17 +71,16 @@ export {
     setEnableBiometrics,
     getBiometricsEnabled,
     KeychainSyncedStore,
-    KeychainSyncedStorePlugin,
 };
 ```
 
-### 2. Initialize Before Using Auth
+### 2. Initialize Before Using Storage
 
 In your root layout or app initializer (e.g., `app/_layout.tsx`):
 
 ```typescript
 import { useEffect, useState } from 'react';
-import { initializeAuth } from './lib/auth';
+import { initializeAuth } from './lib/storage';
 
 export default function RootLayout() {
     const [isAuthReady, setIsAuthReady] = useState(false);
@@ -105,12 +102,31 @@ export default function RootLayout() {
 }
 ```
 
-### 3. Create Your Auth Client
+### 3. Use the Storage Directly
+
+```typescript
+import { KeychainSyncedStore } from "./lib/storage";
+
+// Write
+KeychainSyncedStore.setItem("session", JSON.stringify({ token: "..." }));
+
+// Read
+const session = KeychainSyncedStore.getItem("session");
+
+// Remove
+KeychainSyncedStore.removeItem("session");
+```
+
+## Usage with Better Auth
+
+Install Better Auth packages separately (they are not required by this library).
+
+### Create Your Auth Client
 
 ```typescript
 import { createAuthClient } from "better-auth/react";
 import { expoClient } from "@better-auth/expo/client";
-import { KeychainSyncedStore, KeychainSyncedStorePlugin } from "./lib/auth";
+import { KeychainSyncedStore } from "./lib/storage";
 
 export const authClient = createAuthClient({
     baseURL: "https://your-server.com",
@@ -119,7 +135,6 @@ export const authClient = createAuthClient({
             scheme: "myapp",
             storage: KeychainSyncedStore,
         }),
-        KeychainSyncedStorePlugin,
         // ... other plugins
     ],
 });
@@ -137,7 +152,7 @@ interface KeychainStorageOptions {
     };
 
     // Prefix for all stored keys (avoid collisions between apps)
-    storagePrefixKey?: string; // default: 'baeb'
+    storagePrefixKey?: string; // default: 'kss'
 
     // Storage version for key naming (increment to invalidate old encrypted data)
     storageVersion?: number; // default: 1
@@ -156,7 +171,7 @@ interface KeychainStorageOptions {
 
 ## Multi-Session Support
 
-This plugin is fully compatible with [better-auth's multi-session plugin](https://www.better-auth.com/docs/plugins/multi-session), allowing users to maintain multiple authenticated sessions simultaneously each encrypted and keychain-protected.
+This adapter is fully compatible with [better-auth's multi-session plugin](https://www.better-auth.com/docs/plugins/multi-session), allowing users to maintain multiple authenticated sessions simultaneously each encrypted and keychain-protected.
 
 ```typescript
 import { multiSessionClient } from "better-auth/client/plugins";
@@ -167,7 +182,6 @@ const authClient = createAuthClient({
             /* ... */
         }),
         multiSessionClient(), // Enable multiple sessions
-        KeychainSyncedStorePlugin,
     ],
 });
 ```

@@ -1,4 +1,3 @@
-import type { BetterAuthClientPlugin } from "@better-auth/core";
 import * as Keychain from "react-native-keychain";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
@@ -49,7 +48,7 @@ const createConfig = (
     options: KeychainStorageOptions,
 ): KeychainStorageConfig => {
     const storageVersion = options.storageVersion ?? DEFAULT_STORAGE_VERSION;
-    const prefix = options.storagePrefixKey ?? "baeb"; // Better Auth Expo Biometric
+    const prefix = options.storagePrefixKey ?? "kss"; // Keychain Synced Storage
 
     const serviceName = `${prefix}.service.v${storageVersion}`;
     const encryptionKeyUsername = `${prefix}.key.v${storageVersion}`;
@@ -365,23 +364,11 @@ export const createKeychainSyncedStorage = (
         setItem: (key: string, value: string) => void;
         removeItem: (key: string) => void;
     };
-    plugin: BetterAuthClientPlugin;
     load: () => Promise<void>;
     setEnableBiometrics: (enabled: boolean) => Promise<void>;
     getBiometricsEnabled: () => boolean;
 } => {
     const store = new KeychainSyncedStore(options);
-
-    const plugin: BetterAuthClientPlugin = {
-        id: "expo-biometric-keychain-storage",
-        fetchPlugins: [
-            {
-                id: "expo-biometric-keychain-storage-hooks",
-                name: "expo-biometric-keychain-storage-hooks",
-                hooks: {},
-            },
-        ],
-    };
 
     return {
         store: {
@@ -389,7 +376,6 @@ export const createKeychainSyncedStorage = (
             setItem: store.setItem.bind(store),
             removeItem: store.removeItem.bind(store),
         },
-        plugin,
         load: () => store.initialize(),
         setEnableBiometrics: (enabled: boolean) =>
             store.setEnableBiometrics(enabled),
