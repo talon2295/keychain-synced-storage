@@ -222,17 +222,19 @@ Note: Device must have biometric data enrolled to enable biometric protection. B
 
 ### What This Protects Against
 
-- **Plaintext token theft**: Tokens are encrypted at rest in AsyncStorage
-- **Casual storage inspection**: Anyone reading AsyncStorage files only sees encrypted blobs
-- **Unauthorized key access**: The encryption key is locked in device Keychain and requires biometric or passcode
-- **App-level compromise**: Even if your app is compromised, accessing tokens requires the Keychain key
+- **Plaintext token theft**: Values are encrypted before being written to AsyncStorage (AES-256-CBC)
+- **Casual storage inspection**: AsyncStorage contains only encrypted blobs, not raw tokens
+- **Key protection via OS secure storage**: The encryption key is stored using Keychain/Keystore via `react-native-keychain`
+- **Biometric-gated key access (when enabled)**: With biometrics enabled, key access requires biometric or device passcode, depending on platform support
 
 ### Limitations
 
-- **Rooted/Jailbroken devices**: An attacker with full device control can potentially bypass Keychain protections
-- **Malicious APK modification**: If your app code is modified with malware, keys can be intercepted at runtime during decryption
-- **Weak user authentication**: If the user disables biometric or uses a weak passcode, key security degrades
-- **Server-side responsibility**: This library only secures client-side storage. Your backend must still implement proper authentication, token expiry, rate limiting, and authorization
+- **Runtime exposure**: Decrypted values live in memory while the app is running. A compromised app process can read them.
+- **No integrity protection for stored blobs**: AES-CBC provides confidentiality but not tamper detection. If the stored ciphertext is modified, decryption may fail or produce corrupted data.
+- **Biometrics are optional**: When biometrics are disabled, the key is still stored in Keychain/Keystore but access is not gated by biometric prompts.
+- **Device security and hardware variance**: On Android, hardware-backed protection is best-effort and depends on device support (StrongBox vs TEE).
+- **Rooted/Jailbroken devices**: Full device compromise can bypass OS protections and expose app data.
+- **Server-side responsibility**: This library only secures client-side storage. Your backend must still implement proper authentication, token expiry, rate limiting, and authorization.
 
 ## Roadmap
 
