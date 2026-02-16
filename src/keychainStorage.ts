@@ -88,8 +88,9 @@ const createConfig = (
 };
 
 const generateKey = async (salt: string) => {
-    const key = await Aes.randomKey(64);
-    return await Aes.pbkdf2(key, salt, 5000, 256, "sha512");
+    //const key = await Aes.randomKey(64);
+    //return await Aes.pbkdf2(key, salt, 5000, 256, "sha512");
+    return await Aes.randomKey(32); // AES-256 key
 };
 
 class KeychainSyncedStore {
