@@ -23,6 +23,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 - AES-256-CBC encryption for session data
-- PBKDF2 key derivation with 5000 iterations
 - Hardware-backed keychain storage when biometric is enabled
 - Software-backed keychain storage for passcode-only mode
+
+## [0.1.1] - 2026-02-16
+
+### Changed
+- Added the new async method `setItemAsync` to the store API
+- Updated documentation (`README.md`) to reflect the new async method
+
+### Security
+- Removed PBKDF2 key derivation from `generateKey` as it was redundant

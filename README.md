@@ -113,6 +113,9 @@ KeychainSyncedStore.setItem("session", JSON.stringify({ token: "..." }));
 // Read
 const session = KeychainSyncedStore.getItem("session");
 
+// Async Write
+await KeychainSyncedStore.setItemAsync("session", JSON.stringify({ token: "..." }));
+
 // Remove
 KeychainSyncedStore.removeItem("session");
 ```

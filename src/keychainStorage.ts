@@ -88,8 +88,6 @@ const createConfig = (
 };
 
 const generateKey = async (salt: string) => {
-    //const key = await Aes.randomKey(64);
-    //return await Aes.pbkdf2(key, salt, 5000, 256, "sha512");
     return await Aes.randomKey(32); // AES-256 key
 };
 
@@ -145,6 +143,20 @@ class KeychainSyncedStore {
                 err,
             ),
         );
+    }
+
+    async setItemAsync(key: string, value: string): Promise<void> {
+        this.logger.log(`[KeychainStore] setItemAsync(${key})`);
+        this.memory.set(key, value);
+        try {
+            await this.syncToStorage();
+        } catch (err) {
+            this.logger.error(
+                "[KeychainStore] Background sync to storage failed:",
+                err,
+            );
+            throw new Error(err instanceof Error ? err.message : String(err)); // Rilancia l'errore
+        }
     }
 
     removeItem(key: string): void {
@@ -363,6 +375,7 @@ export const createKeychainSyncedStorage = (
     store: {
         getItem: (key: string) => string | null;
         setItem: (key: string, value: string) => void;
+        setItemAsync: (key: string, value: string) => Promise<void>;
         removeItem: (key: string) => void;
     };
     load: () => Promise<void>;
@@ -375,6 +388,7 @@ export const createKeychainSyncedStorage = (
         store: {
             getItem: store.getItem.bind(store),
             setItem: store.setItem.bind(store),
+            setItemAsync: store.setItemAsync.bind(store),
             removeItem: store.removeItem.bind(store),
         },
         load: () => store.initialize(),
