@@ -2,6 +2,8 @@ import * as Keychain from "react-native-keychain";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
 import Aes from "react-native-aes-crypto";
+import { x25519 } from "@noble/curves/ed25519";
+import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 
 export interface KeychainStorageOptions {
     authPrompt?: {
@@ -275,6 +277,55 @@ class KeychainSyncedStore {
         return this.biometricsEnabled;
     }
 
+    getECDHKeypair(
+        keyName: string,
+    ): { publicKey: string; privateKey: string } | null {
+        const key = `ecdh-keypair-${keyName}`;
+        const value = this.memory.get(key);
+        this.logger.log(
+            `[KeychainStore] getECDHKeypair(${keyName}) => ${value ? "FOUND" : "NOT_FOUND"}`,
+        );
+        return value ? JSON.parse(value) : null;
+    }
+
+    createECDHKeypair(keyName: string): {
+        publicKey: string;
+        privateKey: string;
+    } {
+        const key = `ecdh-keypair-${keyName}`;
+        this.logger.log(`[KeychainStore] createECDHKeypair(${keyName})`);
+
+        // Generate new ECDH keypair using p256
+        const privateKeyBytes = x25519.utils.randomPrivateKey();
+        const privateKey = bytesToHex(privateKeyBytes);
+        const publicKey = bytesToHex(x25519.getPublicKey(privateKeyBytes));
+
+        const keypair = { publicKey, privateKey };
+        this.memory.set(key, JSON.stringify(keypair));
+        this.syncToStorage().catch((err) =>
+            this.logger.error(
+                "[KeychainStore] Background sync on createECDHKeypair failed:",
+                err,
+            ),
+        );
+
+        return keypair;
+    }
+
+    deleteECDHKeypair(keyName: string): void {
+        const key = `ecdh-keypair-${keyName}`;
+        this.logger.log(`[KeychainStore] deleteECDHKeypair(${keyName})`);
+        if (this.memory.has(key)) {
+            this.memory.delete(key);
+            this.syncToStorage().catch((err) =>
+                this.logger.error(
+                    "[KeychainStore] Background sync on deleteECDHKeypair failed:",
+                    err,
+                ),
+            );
+        }
+    }
+
     private async getEncryptionKeyFromKeychain(): Promise<string | null> {
         const credentials = await Keychain.getGenericPassword({
             service: this.config.serviceName,
@@ -381,6 +432,15 @@ export const createKeychainSyncedStorage = (
     load: () => Promise<void>;
     setEnableBiometrics: (enabled: boolean) => Promise<void>;
     getBiometricsEnabled: () => boolean;
+    getECDHKeypair: (keyName: string) => {
+        publicKey: string;
+        privateKey: string;
+    } | null;
+    createECDHKeypair: (keyName: string) => {
+        publicKey: string;
+        privateKey: string;
+    };
+    deleteECDHKeypair: (keyName: string) => void;
 } => {
     const store = new KeychainSyncedStore(options);
 
@@ -395,6 +455,11 @@ export const createKeychainSyncedStorage = (
         setEnableBiometrics: (enabled: boolean) =>
             store.setEnableBiometrics(enabled),
         getBiometricsEnabled: () => store.getBiometricsEnabled(),
+        getECDHKeypair: (keyName: string) => store.getECDHKeypair(keyName),
+        createECDHKeypair: (keyName: string) =>
+            store.createECDHKeypair(keyName),
+        deleteECDHKeypair: (keyName: string) =>
+            store.deleteECDHKeypair(keyName),
     };
 };
 
