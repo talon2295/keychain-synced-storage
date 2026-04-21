@@ -1,6 +1,6 @@
 {
     "name": "keychain-synced-storage",
-    "version": "0.3.0",
+    "version": "0.4.0",
     "description": "Secure keychain-backed storage for Expo/React Native",
     "license": "MIT",
     "author": "",
