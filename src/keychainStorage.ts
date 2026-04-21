@@ -275,6 +275,41 @@ class KeychainSyncedStore {
         return this.biometricsEnabled;
     }
 
+    addCustomData<T>(keyName: string, data: T): void {
+        const key = `custom-data-${keyName}`;
+        this.logger.log(`[KeychainStore] addCustomData(${keyName})`);
+        this.memory.set(key, JSON.stringify(data));
+        this.syncToStorage().catch((err) =>
+            this.logger.error(
+                "[KeychainStore] Background sync on addCustomData failed:",
+                err,
+            ),
+        );
+    }
+
+    getCustomData<T>(keyName: string): T | null {
+        const key = `custom-data-${keyName}`;
+        const value = this.memory.get(key);
+        this.logger.log(
+            `[KeychainStore] getCustomData(${keyName}) => ${value ? "FOUND" : "NULL"}`,
+        );
+        return value ? (JSON.parse(value) as T) : null;
+    }
+
+    deleteCustomData(keyName: string): void {
+        const key = `custom-data-${keyName}`;
+        this.logger.log(`[KeychainStore] deleteCustomData(${keyName})`);
+        if (this.memory.has(key)) {
+            this.memory.delete(key);
+            this.syncToStorage().catch((err) =>
+                this.logger.error(
+                    "[KeychainStore] Background sync on deleteCustomData failed:",
+                    err,
+                ),
+            );
+        }
+    }
+
     private async getEncryptionKeyFromKeychain(): Promise<string | null> {
         const credentials = await Keychain.getGenericPassword({
             service: this.config.serviceName,
@@ -381,6 +416,9 @@ export const createKeychainSyncedStorage = (
     load: () => Promise<void>;
     setEnableBiometrics: (enabled: boolean) => Promise<void>;
     getBiometricsEnabled: () => boolean;
+    addCustomData: <T>(keyName: string, data: T) => void;
+    getCustomData: <T>(keyName: string) => T | null;
+    deleteCustomData: (keyName: string) => void;
 } => {
     const store = new KeychainSyncedStore(options);
 
@@ -395,6 +433,12 @@ export const createKeychainSyncedStorage = (
         setEnableBiometrics: (enabled: boolean) =>
             store.setEnableBiometrics(enabled),
         getBiometricsEnabled: () => store.getBiometricsEnabled(),
+        addCustomData: <T>(keyName: string, data: T) =>
+            store.addCustomData(keyName, data),
+        getCustomData: <T>(keyName: string) =>
+            store.getCustomData<T>(keyName),
+        deleteCustomData: (keyName: string) =>
+            store.deleteCustomData(keyName),
     };
 };
 
