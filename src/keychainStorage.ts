@@ -296,7 +296,7 @@ class KeychainSyncedStore {
         this.logger.log(`[KeychainStore] createECDHKeypair(${keyName})`);
 
         // Generate new ECDH keypair using p256
-        const privateKeyBytes = x25519.utils.randomPrivateKey();
+        const privateKeyBytes = x25519.utils.randomSecretKey();
         const privateKey = bytesToHex(privateKeyBytes);
         const publicKey = bytesToHex(x25519.getPublicKey(privateKeyBytes));
 
