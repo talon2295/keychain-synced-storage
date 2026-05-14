@@ -97,6 +97,7 @@ class KeychainSyncedStore {
     private config: KeychainStorageConfig;
     private biometricsEnabled: boolean = false;
     private encryptionKey: string | null = null;
+    private syncLock: Promise<void> = Promise.resolve();
     private logger: {
         log: (...args: unknown[]) => void;
         warn: (...args: unknown[]) => void;
@@ -137,25 +138,20 @@ class KeychainSyncedStore {
     setItem(key: string, value: string): void {
         this.logger.log(`[KeychainStore] setItem(${key})`);
         this.memory.set(key, value);
-        this.syncToStorage().catch((err) =>
-            this.logger.error(
-                "[KeychainStore] Background sync to storage failed:",
-                err,
-            ),
-        );
+        this.syncToStorage();
     }
 
     async setItemAsync(key: string, value: string): Promise<void> {
         this.logger.log(`[KeychainStore] setItemAsync(${key})`);
         this.memory.set(key, value);
         try {
-            await this.syncToStorage();
+            await this.flush();
         } catch (err) {
             this.logger.error(
                 "[KeychainStore] Background sync to storage failed:",
                 err,
             );
-            throw new Error(err instanceof Error ? err.message : String(err)); // Rilancia l'errore
+            throw new Error(err instanceof Error ? err.message : String(err));
         }
     }
 
@@ -163,12 +159,7 @@ class KeychainSyncedStore {
         this.logger.log(`[KeychainStore] removeItem(${key})`);
         if (this.memory.has(key)) {
             this.memory.delete(key);
-            this.syncToStorage().catch((err) =>
-                this.logger.error(
-                    "[KeychainStore] Background sync on remove failed:",
-                    err,
-                ),
-            );
+            this.syncToStorage();
         }
     }
 
@@ -279,12 +270,7 @@ class KeychainSyncedStore {
         const key = `custom-data-${keyName}`;
         this.logger.log(`[KeychainStore] addCustomData(${keyName})`);
         this.memory.set(key, JSON.stringify(data));
-        this.syncToStorage().catch((err) =>
-            this.logger.error(
-                "[KeychainStore] Background sync on addCustomData failed:",
-                err,
-            ),
-        );
+        this.syncToStorage();
     }
 
     getCustomData<T>(keyName: string): T | null {
@@ -301,12 +287,7 @@ class KeychainSyncedStore {
         this.logger.log(`[KeychainStore] deleteCustomData(${keyName})`);
         if (this.memory.has(key)) {
             this.memory.delete(key);
-            this.syncToStorage().catch((err) =>
-                this.logger.error(
-                    "[KeychainStore] Background sync on deleteCustomData failed:",
-                    err,
-                ),
-            );
+            this.syncToStorage();
         }
     }
 
@@ -373,7 +354,7 @@ class KeychainSyncedStore {
         return Aes.decrypt(ciphertext, this.encryptionKey, iv, "aes-256-cbc");
     }
 
-    private async syncToStorage(): Promise<void> {
+    private async _performSync(): Promise<void> {
         if (Platform.OS === "web" || !this.encryptionKey) {
             return;
         }
@@ -382,25 +363,35 @@ class KeychainSyncedStore {
             "[KeychainStore] Syncing in-memory state to storage...",
         );
 
-        try {
-            const data = JSON.stringify(Object.fromEntries(this.memory));
-            const encryptedData = await this.encryptData(
-                data,
-                this.encryptionKey,
-            );
-            await AsyncStorage.setItem(
-                this.config.encryptedDataKey,
-                encryptedData,
-            );
-            this.logger.log(
-                "[KeychainStore] Synced encrypted state to AsyncStorage.",
-            );
-        } catch (error) {
-            this.logger.error(
-                "[KeychainStore] Error syncing to AsyncStorage:",
-                error,
-            );
-        }
+        const data = JSON.stringify(Object.fromEntries(this.memory));
+        const encryptedData = await this.encryptData(
+            data,
+            this.encryptionKey,
+        );
+        await AsyncStorage.setItem(
+            this.config.encryptedDataKey,
+            encryptedData,
+        );
+        this.logger.log(
+            "[KeychainStore] Synced encrypted state to AsyncStorage.",
+        );
+    }
+
+    private syncToStorage(): void {
+        this.syncLock = this.syncLock
+            .then(() => this._performSync())
+            .catch((error) => {
+                this.logger.error(
+                    "[KeychainStore] Error syncing to AsyncStorage:",
+                    error,
+                );
+            });
+    }
+
+    async flush(): Promise<void> {
+        const flushPromise = this.syncLock.then(() => this._performSync());
+        this.syncLock = flushPromise.catch(() => undefined);
+        return flushPromise;
     }
 }
 
@@ -412,6 +403,7 @@ export const createKeychainSyncedStorage = (
         setItem: (key: string, value: string) => void;
         setItemAsync: (key: string, value: string) => Promise<void>;
         removeItem: (key: string) => void;
+        flush: () => Promise<void>;
     };
     load: () => Promise<void>;
     setEnableBiometrics: (enabled: boolean) => Promise<void>;
@@ -428,6 +420,7 @@ export const createKeychainSyncedStorage = (
             setItem: store.setItem.bind(store),
             setItemAsync: store.setItemAsync.bind(store),
             removeItem: store.removeItem.bind(store),
+            flush: store.flush.bind(store),
         },
         load: () => store.initialize(),
         setEnableBiometrics: (enabled: boolean) =>
