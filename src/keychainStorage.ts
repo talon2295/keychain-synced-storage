@@ -67,7 +67,7 @@ const createConfig = (
         accessControl:
             Keychain.ACCESS_CONTROL.BIOMETRY_CURRENT_SET_OR_DEVICE_PASSCODE,
         securityLevel: Keychain.SECURITY_LEVEL.SECURE_HARDWARE,
-        storage: Keychain.STORAGE_TYPE.AES_GCM,
+        storage: Keychain.STORAGE_TYPE.RSA,
     };
 
     const keychainOptionsWithoutBiometrics: Keychain.SetOptions = {
