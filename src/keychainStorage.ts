@@ -184,19 +184,27 @@ class KeychainSyncedStore {
             this.encryptionKey = key;
             this.logger.log("[KeychainStore] Encryption key is ready.");
 
+            const hadPreInitData = this.memory.size > 0;
+
             const encryptedData = await AsyncStorage.getItem(
                 this.config.encryptedDataKey,
             );
             if (encryptedData) {
                 const decryptedData = await this.decryptData(encryptedData);
-                this.memory = new Map(
+                const storedData = new Map(
                     Object.entries(JSON.parse(decryptedData)),
-                );
+                ) as Map<string, string>;
+                // Merge: stored data as base, pre-init in-memory writes take priority
+                this.memory = new Map([...storedData, ...this.memory]);
                 this.logger.log(
-                    `[KeychainStore] Loaded and decrypted ${this.memory.size} items.`,
+                    `[KeychainStore] Loaded and decrypted ${storedData.size} items from storage.`,
                 );
             } else {
                 this.logger.log("[KeychainStore] No data found in storage.");
+            }
+            // Persist any pre-init writes that couldn't sync before the key was available
+            if (hadPreInitData) {
+                this.syncToStorage();
             }
         } catch (error) {
             if (
@@ -364,14 +372,8 @@ class KeychainSyncedStore {
         );
 
         const data = JSON.stringify(Object.fromEntries(this.memory));
-        const encryptedData = await this.encryptData(
-            data,
-            this.encryptionKey,
-        );
-        await AsyncStorage.setItem(
-            this.config.encryptedDataKey,
-            encryptedData,
-        );
+        const encryptedData = await this.encryptData(data, this.encryptionKey);
+        await AsyncStorage.setItem(this.config.encryptedDataKey, encryptedData);
         this.logger.log(
             "[KeychainStore] Synced encrypted state to AsyncStorage.",
         );
@@ -428,10 +430,8 @@ export const createKeychainSyncedStorage = (
         getBiometricsEnabled: () => store.getBiometricsEnabled(),
         addCustomData: <T>(keyName: string, data: T) =>
             store.addCustomData(keyName, data),
-        getCustomData: <T>(keyName: string) =>
-            store.getCustomData<T>(keyName),
-        deleteCustomData: (keyName: string) =>
-            store.deleteCustomData(keyName),
+        getCustomData: <T>(keyName: string) => store.getCustomData<T>(keyName),
+        deleteCustomData: (keyName: string) => store.deleteCustomData(keyName),
     };
 };
 
