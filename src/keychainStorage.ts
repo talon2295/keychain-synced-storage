@@ -2,6 +2,8 @@ import * as Keychain from "react-native-keychain";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
 import Aes from "react-native-aes-crypto";
+import { x25519 } from "@noble/curves/ed25519";
+import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 
 export interface KeychainStorageOptions {
     authPrompt?: {

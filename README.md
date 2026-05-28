@@ -62,6 +62,9 @@ const {
     load: initializeAuth,
     setEnableBiometrics,
     getBiometricsEnabled,
+    createECDHKeypair,
+    getECDHKeypair,
+    deleteECDHKeypair,
 } = createKeychainSyncedStorage({
     storagePrefixKey: "com.myapp.auth",
 });
@@ -70,6 +73,9 @@ export {
     initializeAuth,
     setEnableBiometrics,
     getBiometricsEnabled,
+    createECDHKeypair,
+    getECDHKeypair,
+    deleteECDHKeypair,
     KeychainSyncedStore,
 };
 ```
@@ -119,6 +125,35 @@ await KeychainSyncedStore.setItemAsync("session", JSON.stringify({ token: "..." 
 // Remove
 KeychainSyncedStore.removeItem("session");
 ```
+
+### 4. ECDH Keypair Management
+
+For secure key exchange and cryptographic operations, use the built-in ECDH keypair management:
+
+```typescript
+import { KeychainSyncedStore, createECDHKeypair, getECDHKeypair, deleteECDHKeypair } from "./lib/storage";
+
+// Create a new ECDH keypair (X25519)
+const keypair = createECDHKeypair("user-session");
+console.log(keypair.publicKey);  // hex-encoded public key
+console.log(keypair.privateKey); // hex-encoded private key
+
+// Retrieve an existing keypair (returns null if not found)
+const existing = getECDHKeypair("user-session");
+if (existing) {
+    console.log("Keypair found", existing.publicKey);
+} else {
+    console.log("Keypair not found");
+}
+
+// Delete a keypair
+deleteECDHKeypair("user-session");
+```
+
+Keypairs are automatically encrypted and persisted to AsyncStorage using the same secure mechanism as the rest of the stored data. They are identified internally as `ecdh-keypair-${keyName}` and can be used for:
+- X25519 Elliptic Curve Diffie-Hellman (ECDH) key exchange
+- Key derivation for additional cryptographic operations
+- Asymmetric cryptography operations
 
 ## Usage with Better Auth
 
@@ -229,6 +264,7 @@ Note: Device must have biometric data enrolled to enable biometric protection. B
 - **Casual storage inspection**: AsyncStorage contains only encrypted blobs, not raw tokens
 - **Key protection via OS secure storage**: The encryption key is stored using Keychain/Keystore via `react-native-keychain`
 - **Biometric-gated key access (when enabled)**: With biometrics enabled, key access requires biometric or device passcode, depending on platform support
+- **Keypair confidentiality**: ECDH keypairs are encrypted and stored with the same security level as other session data
 
 ### Limitations
 
