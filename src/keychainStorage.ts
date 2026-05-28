@@ -2,8 +2,6 @@ import * as Keychain from "react-native-keychain";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
 import Aes from "react-native-aes-crypto";
-import { x25519 } from "@noble/curves/ed25519";
-import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 
 export interface KeychainStorageOptions {
     authPrompt?: {
@@ -26,7 +24,6 @@ interface KeychainStorageConfig {
     encryptionKeyUsername: string;
     biometricsPreferenceKey: string;
     encryptedDataKey: string;
-    encryptionSalt: string;
     keychainOptions: Keychain.SetOptions;
     keychainOptionsWithBiometrics: Keychain.SetOptions;
     keychainOptionsWithoutBiometrics: Keychain.SetOptions;
@@ -56,7 +53,6 @@ const createConfig = (
     const encryptionKeyUsername = `${prefix}.key.v${storageVersion}`;
     const biometricsPreferenceKey = `${prefix}.enabled.v${storageVersion}`;
     const encryptedDataKey = `${prefix}.storage.v${storageVersion}`;
-    const encryptionSalt = `${prefix}.salt.v${storageVersion}`;
 
     const keychainOptions: Keychain.SetOptions = {
         service: serviceName,
@@ -82,14 +78,13 @@ const createConfig = (
         encryptionKeyUsername,
         biometricsPreferenceKey,
         encryptedDataKey,
-        encryptionSalt,
         keychainOptions,
         keychainOptionsWithBiometrics,
         keychainOptionsWithoutBiometrics,
     };
 };
 
-const generateKey = async (salt: string) => {
+const generateKey = async () => {
     return await Aes.randomKey(32); // AES-256 key
 };
 
@@ -180,7 +175,7 @@ class KeychainSyncedStore {
                 this.logger.log(
                     "[KeychainStore] No encryption key found. Generating a new one.",
                 );
-                key = await generateKey(this.config.encryptionSalt);
+                key = await generateKey();
                 await this.saveEncryptionKeyToKeychain(key);
             }
             this.encryptionKey = key;
@@ -241,7 +236,7 @@ class KeychainSyncedStore {
                 await this.getEncryptionKeyFromKeychain();
             }
             const dataToReEncrypt = Object.fromEntries(this.memory);
-            const newKey = await generateKey(this.config.encryptionSalt);
+            const newKey = await generateKey();
             const encryptedData = await this.encryptData(
                 JSON.stringify(dataToReEncrypt),
                 newKey,
