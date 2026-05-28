@@ -11,6 +11,7 @@ export interface KeychainStorageOptions {
     };
     storagePrefixKey?: string;
     storageVersion?: number;
+    keychainVersion?: number;
     enableLogging?: boolean;
     logger?: {
         log: (...args: unknown[]) => void;
@@ -65,11 +66,12 @@ const createConfig = (
     options: KeychainStorageOptions,
 ): KeychainStorageConfig => {
     const storageVersion = options.storageVersion ?? DEFAULT_STORAGE_VERSION;
+    const keychainVersion = options.keychainVersion ?? DEFAULT_STORAGE_VERSION;
     const prefix = options.storagePrefixKey ?? "kss"; // Keychain Synced Storage
 
-    const serviceName = `${prefix}.service.v${storageVersion}`;
-    const encryptionKeyUsername = `${prefix}.key.v${storageVersion}`;
-    const biometricsPreferenceKey = `${prefix}.enabled.v${storageVersion}`;
+    const serviceName = `${prefix}.service.v${keychainVersion}`;
+    const encryptionKeyUsername = `${prefix}.key.v${keychainVersion}`;
+    const biometricsPreferenceKey = `${prefix}.enabled.v${keychainVersion}`;
     const encryptedDataKey = `${prefix}.storage.v${storageVersion}`;
 
     const keychainOptions: Keychain.SetOptions = {
