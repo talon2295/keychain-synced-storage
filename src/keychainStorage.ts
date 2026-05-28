@@ -19,7 +19,25 @@ export interface KeychainStorageOptions {
     };
 }
 
+export interface CustomDataRegistration {
+    service: string;
+    version?: number;
+}
+
+export interface CustomDataAccessor {
+    add<T>(keyName: string, data: T): void;
+    get<T>(keyName: string): T | null;
+    delete(keyName: string): void;
+}
+
+type Logger = {
+    log: (...args: unknown[]) => void;
+    warn: (...args: unknown[]) => void;
+    error: (...args: unknown[]) => void;
+};
+
 interface KeychainStorageConfig {
+    prefix: string;
     serviceName: string;
     encryptionKeyUsername: string;
     biometricsPreferenceKey: string;
@@ -31,7 +49,7 @@ interface KeychainStorageConfig {
 
 const DEFAULT_STORAGE_VERSION = 1;
 
-const createLogger = (options: KeychainStorageOptions) => {
+const createLogger = (options: KeychainStorageOptions): Logger => {
     if (!options.enableLogging) {
         return {
             log: () => undefined,
@@ -74,6 +92,7 @@ const createConfig = (
     };
 
     return {
+        prefix,
         serviceName,
         encryptionKeyUsername,
         biometricsPreferenceKey,
@@ -88,6 +107,124 @@ const generateKey = async () => {
     return await Aes.randomKey(32); // AES-256 key
 };
 
+const encryptData = async (data: string, key: string): Promise<string> => {
+    const iv = await Aes.randomKey(16);
+    const ciphertext = await Aes.encrypt(data, key, iv, "aes-256-cbc");
+    return JSON.stringify({ iv, ciphertext });
+};
+
+const decryptData = async (
+    encryptedJson: string,
+    key: string,
+): Promise<string> => {
+    const { iv, ciphertext } = JSON.parse(encryptedJson);
+    return Aes.decrypt(ciphertext, key, iv, "aes-256-cbc");
+};
+
+class CustomDataStore {
+    private memory: Map<string, string> = new Map();
+    private syncLock: Promise<void> = Promise.resolve();
+    private storageKey: string;
+    private getKey: () => string | null;
+    private logger: Logger;
+
+    constructor(
+        storageKey: string,
+        getKey: () => string | null,
+        logger: Logger,
+    ) {
+        this.storageKey = storageKey;
+        this.getKey = getKey;
+        this.logger = logger;
+    }
+
+    add<T>(keyName: string, data: T): void {
+        this.logger.log(`[CustomDataStore] add(${this.storageKey}, ${keyName})`);
+        this.memory.set(keyName, JSON.stringify(data));
+        this.syncToStorage();
+    }
+
+    get<T>(keyName: string): T | null {
+        const value = this.memory.get(keyName);
+        this.logger.log(
+            `[CustomDataStore] get(${this.storageKey}, ${keyName}) => ${value ? "FOUND" : "NULL"}`,
+        );
+        return value ? (JSON.parse(value) as T) : null;
+    }
+
+    delete(keyName: string): void {
+        this.logger.log(
+            `[CustomDataStore] delete(${this.storageKey}, ${keyName})`,
+        );
+        if (this.memory.has(keyName)) {
+            this.memory.delete(keyName);
+            this.syncToStorage();
+        }
+    }
+
+    async initialize(): Promise<void> {
+        const key = this.getKey();
+        if (!key) return;
+
+        this.logger.log(
+            `[CustomDataStore] Initializing store: ${this.storageKey}`,
+        );
+        const encrypted = await AsyncStorage.getItem(this.storageKey);
+        if (encrypted) {
+            const decrypted = await decryptData(encrypted, key);
+            this.memory = new Map(
+                Object.entries(JSON.parse(decrypted)),
+            ) as Map<string, string>;
+            this.logger.log(
+                `[CustomDataStore] Loaded ${this.memory.size} items from ${this.storageKey}`,
+            );
+        }
+    }
+
+    async reEncrypt(newKey: string): Promise<void> {
+        this.logger.log(
+            `[CustomDataStore] Re-encrypting store: ${this.storageKey}`,
+        );
+        await this.flush();
+        const data = JSON.stringify(Object.fromEntries(this.memory));
+        const encrypted = await encryptData(data, newKey);
+        await AsyncStorage.setItem(this.storageKey, encrypted);
+    }
+
+    async flush(): Promise<void> {
+        const flushPromise = this.syncLock.then(() => this._performSync());
+        this.syncLock = flushPromise.catch(() => undefined);
+        return flushPromise;
+    }
+
+    private syncToStorage(): void {
+        this.syncLock = this.syncLock
+            .then(() => this._performSync())
+            .catch((error) => {
+                this.logger.error(
+                    `[CustomDataStore] Error syncing ${this.storageKey}:`,
+                    error,
+                );
+            });
+    }
+
+    private async _performSync(): Promise<void> {
+        if (Platform.OS === "web") return;
+
+        const key = this.getKey();
+        if (!key) return;
+
+        this.logger.log(
+            `[CustomDataStore] Syncing store: ${this.storageKey}`,
+        );
+        const encrypted = await encryptData(
+            JSON.stringify(Object.fromEntries(this.memory)),
+            key,
+        );
+        await AsyncStorage.setItem(this.storageKey, encrypted);
+    }
+}
+
 class KeychainSyncedStore {
     private memory: Map<string, string> = new Map();
     private options: KeychainStorageOptions;
@@ -95,11 +232,8 @@ class KeychainSyncedStore {
     private biometricsEnabled: boolean = false;
     private encryptionKey: string | null = null;
     private syncLock: Promise<void> = Promise.resolve();
-    private logger: {
-        log: (...args: unknown[]) => void;
-        warn: (...args: unknown[]) => void;
-        error: (...args: unknown[]) => void;
-    };
+    private logger: Logger;
+    private customDataStores: Map<string, CustomDataStore> = new Map();
 
     constructor(options: KeychainStorageOptions = {}) {
         this.options = options;
@@ -187,7 +321,7 @@ class KeychainSyncedStore {
                 this.config.encryptedDataKey,
             );
             if (encryptedData) {
-                const decryptedData = await this.decryptData(encryptedData);
+                const decryptedData = await decryptData(encryptedData, key);
                 const storedData = new Map(
                     Object.entries(JSON.parse(decryptedData)),
                 ) as Map<string, string>;
@@ -199,6 +333,16 @@ class KeychainSyncedStore {
             } else {
                 this.logger.log("[KeychainStore] No data found in storage.");
             }
+
+            // Initialize all registered custom data stores in parallel
+            if (this.customDataStores.size > 0) {
+                await Promise.all(
+                    [...this.customDataStores.values()].map((s) =>
+                        s.initialize(),
+                    ),
+                );
+            }
+
             // Persist any pre-init writes that couldn't sync before the key was available
             if (hadPreInitData) {
                 this.syncToStorage();
@@ -237,7 +381,7 @@ class KeychainSyncedStore {
             }
             const dataToReEncrypt = Object.fromEntries(this.memory);
             const newKey = await generateKey();
-            const encryptedData = await this.encryptData(
+            const encryptedData = await encryptData(
                 JSON.stringify(dataToReEncrypt),
                 newKey,
             );
@@ -246,6 +390,16 @@ class KeychainSyncedStore {
                 this.config.encryptedDataKey,
                 encryptedData,
             );
+
+            // Re-encrypt all custom data stores with the new key before saving it
+            if (this.customDataStores.size > 0) {
+                await Promise.all(
+                    [...this.customDataStores.values()].map((s) =>
+                        s.reEncrypt(newKey),
+                    ),
+                );
+            }
+
             await this.saveEncryptionKeyToKeychain(newKey, enabled);
 
             this.encryptionKey = newKey;
@@ -271,29 +425,20 @@ class KeychainSyncedStore {
         return this.biometricsEnabled;
     }
 
-    addCustomData<T>(keyName: string, data: T): void {
-        const key = `custom-data-${keyName}`;
-        this.logger.log(`[KeychainStore] addCustomData(${keyName})`);
-        this.memory.set(key, JSON.stringify(data));
-        this.syncToStorage();
-    }
-
-    getCustomData<T>(keyName: string): T | null {
-        const key = `custom-data-${keyName}`;
-        const value = this.memory.get(key);
-        this.logger.log(
-            `[KeychainStore] getCustomData(${keyName}) => ${value ? "FOUND" : "NULL"}`,
+    registerCustomData(config: CustomDataRegistration): CustomDataAccessor {
+        const version = config.version ?? 1;
+        const storageKey = `${this.config.prefix}.custom.${config.service}.v${version}`;
+        const store = new CustomDataStore(
+            storageKey,
+            () => this.encryptionKey,
+            this.logger,
         );
-        return value ? (JSON.parse(value) as T) : null;
-    }
-
-    deleteCustomData(keyName: string): void {
-        const key = `custom-data-${keyName}`;
-        this.logger.log(`[KeychainStore] deleteCustomData(${keyName})`);
-        if (this.memory.has(key)) {
-            this.memory.delete(key);
-            this.syncToStorage();
-        }
+        this.customDataStores.set(config.service, store);
+        return {
+            add: <T>(keyName: string, data: T) => store.add(keyName, data),
+            get: <T>(keyName: string) => store.get<T>(keyName),
+            delete: (keyName: string) => store.delete(keyName),
+        };
     }
 
     private async getEncryptionKeyFromKeychain(): Promise<string | null> {
@@ -343,22 +488,6 @@ class KeychainSyncedStore {
         );
     }
 
-    private async encryptData(data: string, key: string): Promise<string> {
-        const iv = await Aes.randomKey(16);
-        const ciphertext = await Aes.encrypt(data, key, iv, "aes-256-cbc");
-        return JSON.stringify({ iv, ciphertext });
-    }
-
-    private async decryptData(encryptedJson: string): Promise<string> {
-        if (!this.encryptionKey) {
-            throw new Error(
-                "Decryption failed: Encryption key is not available.",
-            );
-        }
-        const { iv, ciphertext } = JSON.parse(encryptedJson);
-        return Aes.decrypt(ciphertext, this.encryptionKey, iv, "aes-256-cbc");
-    }
-
     private async _performSync(): Promise<void> {
         if (Platform.OS === "web" || !this.encryptionKey) {
             return;
@@ -369,7 +498,7 @@ class KeychainSyncedStore {
         );
 
         const data = JSON.stringify(Object.fromEntries(this.memory));
-        const encryptedData = await this.encryptData(data, this.encryptionKey);
+        const encryptedData = await encryptData(data, this.encryptionKey);
         await AsyncStorage.setItem(this.config.encryptedDataKey, encryptedData);
         this.logger.log(
             "[KeychainStore] Synced encrypted state to AsyncStorage.",
@@ -407,9 +536,7 @@ export const createKeychainSyncedStorage = (
     load: () => Promise<void>;
     setEnableBiometrics: (enabled: boolean) => Promise<void>;
     getBiometricsEnabled: () => boolean;
-    addCustomData: <T>(keyName: string, data: T) => void;
-    getCustomData: <T>(keyName: string) => T | null;
-    deleteCustomData: (keyName: string) => void;
+    registerCustomData: (config: CustomDataRegistration) => CustomDataAccessor;
 } => {
     const store = new KeychainSyncedStore(options);
 
@@ -425,10 +552,8 @@ export const createKeychainSyncedStorage = (
         setEnableBiometrics: (enabled: boolean) =>
             store.setEnableBiometrics(enabled),
         getBiometricsEnabled: () => store.getBiometricsEnabled(),
-        addCustomData: <T>(keyName: string, data: T) =>
-            store.addCustomData(keyName, data),
-        getCustomData: <T>(keyName: string) => store.getCustomData<T>(keyName),
-        deleteCustomData: (keyName: string) => store.deleteCustomData(keyName),
+        registerCustomData: (config: CustomDataRegistration) =>
+            store.registerCustomData(config),
     };
 };
 
