@@ -9,7 +9,8 @@ This library solves a key security challenge in mobile auth: **secure session pe
 1. **In-memory virtual storage**: Maintains session data in a fast, in-memory Map that your app reads and writes to instantly (synchronous)
 2. **Automatic encryption and persistence**: When you update data, it automatically encrypts it with a key stored in Keychain, then saves the encrypted blob to AsyncStorage in the background (non-blocking)
 3. **Keychain-protected encryption key**: The encryption key lives in the device's secure Keychain/Keystore with optional biometric or passcode protection
-4. **Transparent to your app**: Once initialized, it works exactly like standard storage but with encryption and biometric protection underneath
+4. **Isolated custom data namespaces**: Sensitive app data (e.g. private keys) can be stored in separate encrypted buckets that are never written during session updates
+5. **Transparent to your app**: Once initialized, it works exactly like standard storage but with encryption and biometric protection underneath
 
 ### The Flow
 
@@ -57,27 +58,23 @@ Create a configuration file (e.g., `src/lib/storage.ts`):
 ```typescript
 import { createKeychainSyncedStorage } from "keychain-synced-storage";
 
-const {
+const storage = createKeychainSyncedStorage({
+    storagePrefixKey: "com.myapp.auth",
+});
+
+// Register custom data namespaces BEFORE calling load()
+// Each namespace has its own encrypted AsyncStorage key and independent version.
+export const privateKeyStore = storage.registerCustomData({
+    service: "private-key",
+    version: 1,
+});
+
+export const {
     store: KeychainSyncedStore,
     load: initializeAuth,
     setEnableBiometrics,
     getBiometricsEnabled,
-    createECDHKeypair,
-    getECDHKeypair,
-    deleteECDHKeypair,
-} = createKeychainSyncedStorage({
-    storagePrefixKey: "com.myapp.auth",
-});
-
-export {
-    initializeAuth,
-    setEnableBiometrics,
-    getBiometricsEnabled,
-    createECDHKeypair,
-    getECDHKeypair,
-    deleteECDHKeypair,
-    KeychainSyncedStore,
-};
+} = storage;
 ```
 
 ### 2. Initialize Before Using Storage
@@ -119,41 +116,40 @@ KeychainSyncedStore.setItem("session", JSON.stringify({ token: "..." }));
 // Read
 const session = KeychainSyncedStore.getItem("session");
 
-// Async Write
+// Async Write (waits for encryption sync to complete)
 await KeychainSyncedStore.setItemAsync("session", JSON.stringify({ token: "..." }));
 
 // Remove
 KeychainSyncedStore.removeItem("session");
+
+// Force flush all pending background syncs
+await KeychainSyncedStore.flush();
 ```
 
-### 4. ECDH Keypair Management
+### 4. Custom Data Namespaces
 
-For secure key exchange and cryptographic operations, use the built-in ECDH keypair management:
+Use `registerCustomData()` to store sensitive app data (private keys, certificates, secrets) in a **separate encrypted bucket** isolated from the session data. Session writes never trigger a sync to the custom data bucket, reducing flash write cycles for rarely-changed data.
 
 ```typescript
-import { KeychainSyncedStore, createECDHKeypair, getECDHKeypair, deleteECDHKeypair } from "./lib/storage";
+import { privateKeyStore } from "./lib/storage";
 
-// Create a new ECDH keypair (X25519)
-const keypair = createECDHKeypair("user-session");
-console.log(keypair.publicKey);  // hex-encoded public key
-console.log(keypair.privateKey); // hex-encoded private key
+// Store a private key
+privateKeyStore.add("main", { privateKey: "...", publicKey: "..." });
 
-// Retrieve an existing keypair (returns null if not found)
-const existing = getECDHKeypair("user-session");
-if (existing) {
-    console.log("Keypair found", existing.publicKey);
-} else {
-    console.log("Keypair not found");
-}
+// Retrieve it (returns null if not found)
+const keypair = privateKeyStore.get<{ privateKey: string; publicKey: string }>("main");
 
-// Delete a keypair
-deleteECDHKeypair("user-session");
+// Delete it
+privateKeyStore.delete("main");
 ```
 
-Keypairs are automatically encrypted and persisted to AsyncStorage using the same secure mechanism as the rest of the stored data. They are identified internally as `ecdh-keypair-${keyName}` and can be used for:
-- X25519 Elliptic Curve Diffie-Hellman (ECDH) key exchange
-- Key derivation for additional cryptographic operations
-- Asymmetric cryptography operations
+**AsyncStorage keys** created by `registerCustomData`:
+```
+{storagePrefixKey}.custom.{service}.v{version}
+// e.g. com.myapp.auth.custom.private-key.v1
+```
+
+Each namespace has its own version number, so you can migrate one namespace independently without affecting others.
 
 ## Usage with Better Auth
 
@@ -184,16 +180,23 @@ export const authClient = createAuthClient({
 interface KeychainStorageOptions {
     // Biometric and auth prompt messages (optional)
     authPrompt?: {
-        title?: string; // default: "Authentication Required"
+        title?: string;    // default: "Authentication Required"
         subtitle?: string; // default: "Restoring your session"
-        cancel?: string; // default: "Cancel"
+        cancel?: string;   // default: "Cancel"
     };
 
     // Prefix for all stored keys (avoid collisions between apps)
     storagePrefixKey?: string; // default: 'kss'
 
-    // Storage version for key naming (increment to invalidate old encrypted data)
+    // Version for the session data blob in AsyncStorage.
+    // Increment to invalidate old session data (forces fresh login).
+    // Does NOT affect the Keychain entry or custom data namespaces.
     storageVersion?: number; // default: 1
+
+    // Version for the Keychain entry and biometrics preference key.
+    // Increment only for intentional key rotation (e.g. security incident).
+    // Changing this generates a new encryption key — all stored data becomes inaccessible.
+    keychainVersion?: number; // default: 1
 
     // Enable console logging for debugging
     enableLogging?: boolean; // default: false
@@ -206,6 +209,16 @@ interface KeychainStorageOptions {
     };
 }
 ```
+
+### Versioning Strategy
+
+| What changed | Which version to bump |
+|---|---|
+| Session data format needs to be cleared | `storageVersion` |
+| Intentional encryption key rotation | `keychainVersion` |
+| Custom data schema for one namespace | `version` in `registerCustomData()` |
+
+Bumping `storageVersion` clears the session data blob but leaves the Keychain entry and all custom data intact. Bumping `keychainVersion` generates a new encryption key — all data (session and custom) stored under the old key becomes inaccessible.
 
 ## Multi-Session Support
 
@@ -231,7 +244,7 @@ By default, the encryption key is stored in Keychain with passcode-only protecti
 The `setEnableBiometrics()` function switches the encryption key between two security modes:
 
 ```typescript
-import { setEnableBiometrics } from "./lib/auth";
+import { setEnableBiometrics } from "./lib/storage";
 
 // Enable biometric-protected key access
 // On Android: requires biometric enrollment; on iOS: enables Touch ID / Face ID
@@ -247,12 +260,10 @@ When you call `setEnableBiometrics()`:
 
 1. **Key verification**: If biometric was already enabled, the user is prompted to authenticate (biometric or passcode) to verify they have access to the current key
 2. **Key rotation**: A new encryption key is generated
-3. **Data re-encryption**: All stored session data is encrypted with the new key
+3. **Data re-encryption**: All session data and all registered custom data namespaces are re-encrypted with the new key atomically
 4. **Keychain update**: The new key is saved to Keychain with the specified protection level (biometric or passcode-only)
 
-This approach ensures security even though the data itself doesn't change: by rotating the key, you prevent unauthorized access if the biometric setting is toggled.
-
-**Important**: Do not call `setEnableBiometrics()` multiple times in rapid succession. There may be a race condition in `react-native-keychain` that requires time to complete each operation safely. Calling it too quickly could potentially corrupt the stored key. If you need to toggle the setting, ensure there is sufficient time between calls or debounce the function.
+**Important**: Do not call `setEnableBiometrics()` multiple times in rapid succession. There may be a race condition in `react-native-keychain` that requires time to complete each operation safely. If you need to toggle the setting, ensure there is sufficient time between calls or debounce the function.
 
 Note: Device must have biometric data enrolled to enable biometric protection. Biometric support is handled by `react-native-keychain` and the device's native Keychain/Keystore APIs.
 
@@ -264,7 +275,7 @@ Note: Device must have biometric data enrolled to enable biometric protection. B
 - **Casual storage inspection**: AsyncStorage contains only encrypted blobs, not raw tokens
 - **Key protection via OS secure storage**: The encryption key is stored using Keychain/Keystore via `react-native-keychain`
 - **Biometric-gated key access (when enabled)**: With biometrics enabled, key access requires biometric or device passcode, depending on platform support
-- **Keypair confidentiality**: ECDH keypairs are encrypted and stored with the same security level as other session data
+- **Custom data confidentiality**: Sensitive app data is stored in isolated encrypted namespaces, insulated from high-frequency session writes
 
 ### Limitations
 
