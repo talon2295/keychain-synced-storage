@@ -236,6 +236,7 @@ class KeychainSyncedStore {
     private syncLock: Promise<void> = Promise.resolve();
     private logger: Logger;
     private customDataStores: Map<string, CustomDataStore> = new Map();
+    private initPromise: Promise<void> | null = null;
 
     constructor(options: KeychainStorageOptions = {}) {
         this.options = options;
@@ -268,6 +269,16 @@ class KeychainSyncedStore {
         return value ?? null;
     }
 
+    async getItemAsync(key: string): Promise<string | null> {
+        this.logger.log(`[KeychainStore] getItemAsync(${key})`);
+        // Wait for load() to finish, if it was started. Never rejects:
+        // initialize() catches its own errors.
+        if (this.initPromise) {
+            await this.initPromise;
+        }
+        return this.getItem(key);
+    }
+
     setItem(key: string, value: string): void {
         this.logger.log(`[KeychainStore] setItem(${key})`);
         this.memory.set(key, value);
@@ -296,7 +307,20 @@ class KeychainSyncedStore {
         }
     }
 
-    async initialize(): Promise<void> {
+    initialize(): Promise<void> {
+        // Idempotent: concurrent/repeated calls share the same promise.
+        if (!this.initPromise) {
+            this.initPromise = this._initialize().then(() => {
+                // Failed or canceled (no key): allow a later load() to retry.
+                if (Platform.OS !== "web" && !this.encryptionKey) {
+                    this.initPromise = null;
+                }
+            });
+        }
+        return this.initPromise;
+    }
+
+    private async _initialize(): Promise<void> {
         if (Platform.OS === "web") {
             return;
         }
@@ -530,6 +554,7 @@ export const createKeychainSyncedStorage = (
 ): {
     store: {
         getItem: (key: string) => string | null;
+        getItemAsync: (key: string) => Promise<string | null>;
         setItem: (key: string, value: string) => void;
         setItemAsync: (key: string, value: string) => Promise<void>;
         removeItem: (key: string) => void;
@@ -545,6 +570,7 @@ export const createKeychainSyncedStorage = (
     return {
         store: {
             getItem: store.getItem.bind(store),
+            getItemAsync: store.getItemAsync.bind(store),
             setItem: store.setItem.bind(store),
             setItemAsync: store.setItemAsync.bind(store),
             removeItem: store.removeItem.bind(store),
