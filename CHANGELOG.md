@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-11-25
+
+### Added
+- `getItemAsync(key)` — async read that waits for `load()` to finish (if it was started) before reading from memory. Use it when a read may run before initialization completes. If `load()` was never called it resolves immediately.
+
+### Changed
+- `load()` is now idempotent: concurrent and repeated calls share the same initialization (a single biometric prompt). If initialization is canceled or fails (no encryption key obtained), a later `load()` call retries.
+
 ## [0.9.0] - 2026-05-29
 
 ### Added

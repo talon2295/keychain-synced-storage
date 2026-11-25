@@ -105,6 +105,8 @@ export default function RootLayout() {
 }
 ```
 
+`load()` is idempotent: concurrent or repeated calls share the same initialization. If it is canceled (e.g. the user dismisses the biometric prompt) or fails, calling `load()` again retries.
+
 ### 3. Use the Storage Directly
 
 ```typescript
@@ -115,6 +117,9 @@ KeychainSyncedStore.setItem("session", JSON.stringify({ token: "..." }));
 
 // Read
 const session = KeychainSyncedStore.getItem("session");
+
+// Async Read (waits for load() to finish before reading, if it was started)
+const sessionAsync = await KeychainSyncedStore.getItemAsync("session");
 
 // Async Write (waits for encryption sync to complete)
 await KeychainSyncedStore.setItemAsync("session", JSON.stringify({ token: "..." }));
